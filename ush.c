@@ -4,9 +4,14 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 #define BUFF_SIZE 1024
 #define TOKEN_SIZE 128
+
 
 int ush_cd(char **args);
 int ush_help(char **args);
@@ -15,6 +20,15 @@ int ush_exit(char **args);
 char *builtins[] = {"cd","help","exit"};
 int (*builtin_function[]) (char **) = { &ush_cd, &ush_help, &ush_exit };
 
+void sigintHandler(int sig_num)
+{
+    printf("\n Ctrl+C \n");
+    printf("ush> ");
+}
+
+void sigHandler(int sig_num){
+    printf("\n Ctrl+C \n");
+}
 int num_builtins(){
 	return sizeof(builtins) / sizeof(char *);
 }
@@ -26,7 +40,7 @@ int ush_cd(char **args){
 	else{
 		int stat = chdir(args[1]);
 		if(stat != 0){
-			perror("ush");
+			fprintf(stderr, "Directory not found\n");
 		}
 	}
 	return 1;
@@ -55,21 +69,6 @@ void print(char *arr[], int size){
 	printf("\n");
 }
 
-char* read_line(){
-
-	char * line = NULL;
-	size_t size = 0;
-
-	int error_code = getline(&line, &size, stdin );
-	if(error_code == 0){
-		return NULL;
-	}
-	else if(error_code == -1){
-		return "null\n";
-	}
-	return line;
-}
-
 char** split_line (char * line, int *argc){
 	int token_buffer_size = TOKEN_SIZE;
 	char **tokens = malloc( token_buffer_size * sizeof(char *));
@@ -82,7 +81,7 @@ char** split_line (char * line, int *argc){
 	}
 	if( !tokens){
 		fprintf(stderr, "allocation error\n" );
-		exit(EXIT_FAILURE);
+		exit(0);
 	}
 
 	else{
@@ -97,7 +96,7 @@ char** split_line (char * line, int *argc){
 				tokens = realloc(tokens, token_buffer_size);
 				if(!tokens){
 					fprintf(stderr, "allocation error\n");
-					exit(EXIT_FAILURE);
+					exit(0);
 				}
 			}
 
@@ -113,7 +112,8 @@ char** split_line (char * line, int *argc){
 	}
 }
 
-int launch (char **args){
+int run_command (char **args){
+	signal(SIGINT, sigHandler);
 	pid_t pid;
 	int status;
 
@@ -127,7 +127,7 @@ int launch (char **args){
 		if(error_code == -1){
 			fprintf(stderr, "ush: command not found \n" );
 		}
-		exit(1);
+		exit(0);
 	}
 
 	else{
@@ -151,7 +151,7 @@ int execute(char **args){
     	}
 	}
 
-	return launch(args);
+	return run_command(args);
 }
 void ush_shell(void){
 	char *line;
@@ -160,9 +160,10 @@ void ush_shell(void){
 	int status;
 
 	do{
-		printf("ush> ");
-		line = read_line();
-		if(strcmp(line,"null\n") == 0){
+		signal(SIGINT, sigintHandler);
+		line = readline("ush> ");
+		if(line == NULL){
+			printf("exit\n");
 			break;
 		}
 		args = split_line(line,&argc);
