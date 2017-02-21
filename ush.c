@@ -49,7 +49,7 @@ int ush_cd(char **args){
 int ush_help(char **args){
   int i;
   int size = num_builtins();
-  printf("Type command names and arguments, and hit enter.\n");
+  printf("Enter the command names and arguments, and press Enter to execute.\n");
   printf("Built in functions:\n");
   for (i = 0; i < size; i++) {
     printf("  %s\n", builtins[i]);
