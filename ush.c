@@ -73,12 +73,7 @@ char** split_line (char * line, int *argc){
 	int token_buffer_size = TOKEN_SIZE;
 	char **tokens = malloc( token_buffer_size * sizeof(char *));
 	char *token;
-	if(line == NULL){
-		return NULL;
-	}
-	if( strcmp(line,"\n") == 0){
-		return NULL;
-	}
+
 	if( !tokens){
 		fprintf(stderr, "allocation error\n" );
 		exit(0);
@@ -166,9 +161,11 @@ void ush_shell(void){
 			printf("exit\n");
 			break;
 		}
+		if( strcmp(line,"\0") != 0){
+			add_history(line);
+		}		
 		args = split_line(line,&argc);
 		status = execute(args);
-
 
 		free(line);
 		free(args);
