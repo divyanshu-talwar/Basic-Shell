@@ -12,16 +12,26 @@
 #define BUFF_SIZE 1024
 #define TOKEN_SIZE 128
 
+struct node{
+	char data[1000];
+	struct node *next;
+};
+
+struct Queue{
+	struct node *start, *end;
+};
+
+struct Queue * history_queue;
 
 int ush_cd(char **args);
 int ush_help(char **args);
 int ush_exit(char **args);
+int ush_history(char **args);
 
-char *builtins[] = {"cd","help","exit"};
-int (*builtin_function[]) (char **) = { &ush_cd, &ush_help, &ush_exit };
+char *builtins[] = {"cd","help","exit","history"};
+int (*builtin_function[]) (char **) = { &ush_cd, &ush_help, &ush_exit, &ush_history };
 
-void sigintHandler(int sig_num)
-{
+void sigintHandler(int sig_num){
     printf("\n Ctrl+C \n");
     printf("ush> ");
 }
@@ -54,6 +64,71 @@ int ush_help(char **args){
   for (i = 0; i < size; i++) {
     printf("  %s\n", builtins[i]);
   }
+  return 1;
+}
+
+struct node * create_node(char *line){
+	struct node *temp = (struct node *) malloc(sizeof( struct node ));
+	strcpy(temp -> data,line);
+	temp -> next = NULL;
+	return temp;
+}
+
+struct Queue * initialize_queue(){
+	struct Queue *q = (struct Queue*) malloc(sizeof(struct Queue));
+	q -> start = q -> end = NULL;
+	return q;
+}
+
+void enqueue(struct Queue * q,char *line){
+	struct node *temp = create_node(line);
+	if(q -> start == NULL){
+		q -> start = q -> end = temp;
+	}
+	else{
+		q -> end -> next = temp;
+		q -> end = temp;
+	}
+}
+
+void ush_history_add(FILE *input, char *line){
+	line = strcat(line,"\n");
+	fputs(line,input);
+	enqueue(history_queue, line);
+}
+
+void history_read(FILE *input){
+	char *line = NULL;
+	size_t len;
+	while (1){
+		if(getline(&line, &len, input) == -1){
+			break;
+		}
+		if(strcmp(line,"\n")==0){
+			continue;
+		}
+        if(line[strlen(line)-1] == '\n'){
+            line[strlen(line) - 1] = '\0';           
+        }
+        enqueue(history_queue,line);
+        add_history(line);
+	}
+}
+
+void print_queue(struct Queue * q){
+	struct node *temp = (struct node *)malloc(sizeof(struct node));
+	temp = q -> start;
+	while(temp -> next != NULL){
+		printf("%s\n",temp -> data );
+		temp = temp -> next;
+	}
+}
+
+int ush_history(char **args){
+  int i;
+  int size = num_builtins();
+  printf("History :\n");
+  print_queue(history_queue);
   return 1;
 }
 
@@ -148,7 +223,7 @@ int execute(char **args){
 
 	return run_command(args);
 }
-void ush_shell(void){
+void ush_shell(FILE *input){
 	char *line;
 	char **args;
 	int argc = 0;
@@ -163,6 +238,7 @@ void ush_shell(void){
 		}
 		if( strcmp(line,"\0") != 0){
 			add_history(line);
+			ush_history_add(input,line);
 		}		
 		args = split_line(line,&argc);
 		status = execute(args);
@@ -176,6 +252,11 @@ void ush_shell(void){
 
 int main(int argc, char const *argv[])
 {
-	ush_shell();
+	FILE *input;
+	input = fopen(".ush_history","a+");
+	history_queue = initialize_queue();
+	history_read(input);
+	ush_shell(input);
+	fclose(input);
 	return 0;
 }
