@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -28,9 +29,16 @@ int ush_help(char **args);
 int ush_exit(char **args);
 int ush_history(char **args);
 int run_builtin_command (char **args);
+int open_outfile();
+int open_infile();
 
-char *builtins[] = {"cd","help","exit","history"};
-int (*builtin_function[]) (char **) = { &ush_cd, &ush_help, &ush_exit, &ush_history };
+int piping, index_inp, index_out, inp_redir, out_redir;
+char* infile;
+char* outfile;
+int infd, outfd;
+
+char *builtins[] = {"cd","exit","help","history"};
+int (*builtin_function[]) (char **) = { &ush_cd, &ush_exit, &ush_help, &ush_history };
 
 void sigintHandler(int sig_num){
     printf("\n Ctrl+C \n");
@@ -134,7 +142,7 @@ int ush_history(char **args){
 }
 
 int ush_exit(char **args){
-	return 2;
+	return 0;
 }
 
 void print(char *arr[], int size){
@@ -226,6 +234,106 @@ char*** split_pipe (char * line, int *argc){
 	}
 }
 
+char * split_redirection(char *line){
+	int token_buffer_size = TOKEN_SIZE;
+	char **tokens = malloc( token_buffer_size * sizeof(char *));
+	char *token;
+	infile = outfile = NULL;
+	int pos = 0;
+	if( !tokens){
+		fprintf(stderr, "allocation error\n" );
+		exit(0);
+	}
+
+	if(inp_redir == 1 && out_redir == 1) {
+	        token = strtok(line, "<>");
+	        pos = 0;
+			while(token != NULL){
+				tokens[pos] = token;
+				pos ++;
+
+				if(pos > token_buffer_size){
+					token_buffer_size += TOKEN_SIZE;
+					tokens = realloc(tokens, token_buffer_size);
+					if(!tokens){
+						fprintf(stderr, "allocation error\n");
+						exit(0);
+					}
+				}
+
+				if(token[strlen(token)-1] == '\n'){
+					token[strlen(token)-1] = '\0';
+				}
+				token = strtok(NULL,"<>");
+			}
+	        if(index_inp < index_out ) {
+	                infile = strdup(tokens[pos - 2]);
+	                outfile = strdup(tokens[pos - 1]);
+	        }
+	        else {
+	                infile = strdup(tokens[pos - 1]);
+	                outfile = strdup(tokens[pos - 2]);
+	        }
+	        infile = strtok(infile," \n");
+	        outfile = strtok(outfile," \n");
+	        tokens[pos - 2] = tokens[pos - 1] = NULL;
+	        
+	        return tokens[0];
+	}
+	        
+	else if(inp_redir == 1) {
+	        token = strtok(line, "<");
+	        pos = 0;
+			while(token != NULL){
+				tokens[pos] = token;
+				pos ++;
+
+				if(pos > token_buffer_size){
+					token_buffer_size += TOKEN_SIZE;
+					tokens = realloc(tokens, token_buffer_size);
+					if(!tokens){
+						fprintf(stderr, "allocation error\n");
+						exit(0);
+					}
+				}
+				if(token[strlen(token)-1] == '\n'){
+					token[strlen(token)-1] = '\0';
+				}
+				token = strtok(NULL,"<");
+			}
+	        infile = strdup(tokens[pos - 1]);
+	        infile = strtok(infile," \n");
+	        return tokens[0];   
+	}
+	else if(out_redir == 1) {
+	        token = strtok(line, ">");
+	        pos = 0;
+			while(token != NULL){
+				tokens[pos] = token;
+				pos ++;
+
+				if(pos > token_buffer_size){
+					token_buffer_size += TOKEN_SIZE;
+					tokens = realloc(tokens, token_buffer_size);
+					if(!tokens){
+						fprintf(stderr, "allocation error\n");
+						exit(0);
+					}
+				}
+				if(token[strlen(token)-1] == '\n'){
+					token[strlen(token)-1] = '\0';
+				}
+				token = strtok(NULL,">");
+			}
+	        outfile = strdup(tokens[pos - 1]);
+	        outfile = strtok(outfile," \n");
+	        return tokens[0];   
+	}
+	else{
+		return NULL;
+	}
+}
+
 int run_command (char **args){
 	signal(SIGINT, sigHandler);
 	pid_t pid;
@@ -237,11 +345,22 @@ int run_command (char **args){
 	}
 
 	else if (pid == 0){
-		int error_code = execvp(args[0],args);
-		if(error_code == -1){
-			fprintf(stderr, "ush: command not found \n" );
+		if(outfile){
+			open_outfile();
 		}
-		exit(0);
+		if(infile){
+			open_infile();
+		}
+		if(!run_builtin_command(args)){
+			int error_code = execvp(args[0],args);
+			if(error_code == -1){
+				fprintf(stderr, "ush: command not found \n" );
+			}
+			exit(1);
+		}
+		else{
+			exit(1);
+		}
 	}
 
 	else{
@@ -266,8 +385,18 @@ int run_pipe_command(char ***args_arr){
 		}
 		else if(pid == 0){
 			dup2(prev_filedes,0);
+			if(i == 0){
+				if(infile){
+					infd = open_infile();
+				}
+			}
 			if(args_arr[i+1] != NULL){
 				dup2(pipe_channel[1],1);
+			}
+			else if(args_arr[i+1] == NULL){
+				if(outfile){
+					outfd = open_outfile();
+				}
 			}
 			close(pipe_channel[0]);
 			if(!run_builtin_command(args_arr[i])){
@@ -295,7 +424,7 @@ int run_builtin_command (char **args){
 	int i;
 	int size = num_builtins();
 
-	for (i = 0; i < size; i++) {
+	for (i = 2; i < size; i++) {
     	if( strcmp(args[0],builtins[i]) == 0){
     		return (*builtin_function[i])(args);
     	}
@@ -304,6 +433,8 @@ int run_builtin_command (char **args){
 }
 
 int execute(char **args){
+	int i;
+	int size = 2;
 
 	if(args == NULL){
 		return 1;
@@ -311,14 +442,64 @@ int execute(char **args){
 	if(args[0] == NULL){
 		return 1;
 	}
-	int stat = run_builtin_command(args);
-	if(!stat){
-		return run_command(args);
+	for (i = 0; i < size; i++) {
+    	if( strcmp(args[0],builtins[i]) == 0){
+    		return (*builtin_function[i])(args);
+    	}
 	}
-	else if(stat == 2){
-		return 0;
-	}
-	return 1;
+	return run_command(args);
+}
+
+int check_special_characters(char* line) {
+        int i;
+        outfile = NULL;
+		infile = NULL;
+        index_inp = index_out = piping = inp_redir = out_redir = 0;
+        for( i = 0 ; line[i] ; i++) {
+                if(line[i] == '|') {
+                        piping = 1;
+                }
+                if(line[i] == '<') {
+                        inp_redir = 1;
+                        if(index_inp == 0 ){
+                        	index_inp = i;
+                        }
+                }
+                if(line[i] == '>') {
+                        out_redir = 1;
+                        if(index_out == 0 ){
+                        	index_out = i;
+                        }
+                }
+        }
+        if(piping){
+        	return 1;
+        }
+        else{
+        	return -1;
+        }
+}
+
+int open_infile() {
+        int f = open(infile, O_RDONLY, S_IRWXU);
+        if (f < 0) {
+                perror(infile);
+                
+        }
+        dup2(f, 0);
+        close(f);
+        return f;
+}
+
+int open_outfile() {
+        int f;
+        f = open(outfile, O_CREAT | O_WRONLY | O_TRUNC, S_IRWXU);
+        if(f < 0) {
+                perror(outfile);
+        }
+        dup2(f,1);
+        close(f);
+        return f;
 }
 
 void ush_shell(FILE *input){
@@ -327,6 +508,8 @@ void ush_shell(FILE *input){
 	char ***args_arr;
 	int argc = 0;
 	int status;
+	infd = 0;
+	outfd = 1;
 
 	do{
 		signal(SIGINT, sigintHandler);
@@ -339,26 +522,31 @@ void ush_shell(FILE *input){
 			add_history(line);
 			ush_history_add(input,line);
 		}
-		if(strstr(line,"|") == NULL){
+		if(check_special_characters(line) == -1){
+			if(out_redir || inp_redir){
+				line = split_redirection(line);
+			}
 			args = split_line(line,&argc);
 			status = execute(args);
 			free(line);
 			free(args);
 		}
 		else{
+			if(out_redir || inp_redir){
+				line = split_redirection(line);
+			}
 			args_arr = split_pipe(line,&argc);
 			run_pipe_command(args_arr);
 			free(args_arr);
 			status = 1;
 		}
-
 		argc = 0;
+
 	}while(status);
 
 }
 
-int main(int argc, char const *argv[])
-{
+int main(int argc, char const *argv[]){
 	FILE *input;
 	input = fopen(".ush_history","a+");
 	history_queue = initialize_queue();
