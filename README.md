@@ -12,7 +12,7 @@
 * It can handle piping `|`, redirection of stdin and/or stdout `> and/or <` .
 * The shell can `kill` only those processes that are started by it, if it is not started in root mode (by default shell is not started in root mode ), else it can kill any process except `init`.
 * The `help` command lists all the built in commands.
-* The `history command lists all the commands used so far(since the first use of the shell).
+* The `history` command lists all the commands used so far(since the first use of the shell).
 * Any erroneous command results in `Command not found!` as the output on stdout.
 * The shell exits if an `EOF character` or `exit` is typed on stdin.
 * Typing `enter` on `stdin` takes the prompt to the next line.
