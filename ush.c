@@ -27,6 +27,7 @@ int ush_cd(char **args);
 int ush_help(char **args);
 int ush_exit(char **args);
 int ush_history(char **args);
+int run_builtin_command (char **args);
 
 char *builtins[] = {"cd","help","exit","history"};
 int (*builtin_function[]) (char **) = { &ush_cd, &ush_help, &ush_exit, &ush_history };
@@ -92,9 +93,9 @@ void enqueue(struct Queue * q,char *line){
 }
 
 void ush_history_add(FILE *input, char *line){
+	enqueue(history_queue, line);
 	line = strcat(line,"\n");
 	fputs(line,input);
-	enqueue(history_queue, line);
 }
 
 void history_read(FILE *input){
@@ -133,7 +134,7 @@ int ush_history(char **args){
 }
 
 int ush_exit(char **args){
-	return 0;
+	return 2;
 }
 
 void print(char *arr[], int size){
@@ -162,7 +163,7 @@ char** split_line (char * line, int *argc){
 			pos ++;
 
 			if(pos > token_buffer_size){
-				token_buffer_size += BUFF_SIZE;
+				token_buffer_size += TOKEN_SIZE;
 				tokens = realloc(tokens, token_buffer_size);
 				if(!tokens){
 					fprintf(stderr, "allocation error\n");
@@ -179,6 +180,49 @@ char** split_line (char * line, int *argc){
 		tokens[pos] = NULL;
 		*argc = pos;
 		return tokens;
+	}
+}
+
+char*** split_pipe (char * line, int *argc){
+	int token_buffer_size = TOKEN_SIZE;
+	char **tokens = malloc( token_buffer_size * sizeof(char *));
+	char *token;
+
+	if( !tokens){
+		fprintf(stderr, "allocation error\n" );
+		exit(0);
+	}
+
+	else{
+		token = strtok(line,"|");
+		int pos = 0;
+		while(token != NULL){
+			tokens[pos] = token;
+			pos ++;
+
+			if(pos > token_buffer_size){
+				token_buffer_size += TOKEN_SIZE;
+				tokens = realloc(tokens, token_buffer_size);
+				if(!tokens){
+					fprintf(stderr, "allocation error\n");
+					exit(0);
+				}
+			}
+
+			if(token[strlen(token)-1] == '\n'){
+				token[strlen(token)-1] = '\0';
+			}
+			token = strtok(NULL,"|");
+		}
+		*argc = pos;
+		int i;
+		char ***args_arr = (char*** )(malloc((pos + 1) * sizeof(char **)));
+		for (i = 0; i < pos; i++){
+			int a;
+			args_arr[i] = split_line(tokens[i],&a);
+		}
+		args_arr[pos] = NULL;
+		return args_arr;
 	}
 }
 
@@ -205,27 +249,82 @@ int run_command (char **args){
 	}
 }
 
-int execute(char **args){
+int run_pipe_command(char ***args_arr){
+	int pipe_channel[2];
+	int prev_filedes = 0;
+	pid_t pid;
+	int i = 0;
 
+	while(args_arr[i] != NULL){
+		if(pipe(pipe_channel) == -1){
+			exit(1);
+		}
+
+		pid = fork();
+		if(pid < 0){
+			exit(1);
+		}
+		else if(pid == 0){
+			dup2(prev_filedes,0);
+			if(args_arr[i+1] != NULL){
+				dup2(pipe_channel[1],1);
+			}
+			close(pipe_channel[0]);
+			if(!run_builtin_command(args_arr[i])){
+				int error_code = execvp(args_arr[i][0], args_arr[i]);
+				if(error_code == -1){
+					fprintf(stderr, "ush: command not found \n" );
+					exit(0);
+				}
+				exit(0);
+			}
+			else{
+				exit(0);
+			}
+		}
+		else{
+			wait(NULL);
+			close(pipe_channel[1]);
+			prev_filedes = pipe_channel[0];
+			i++;
+		}
+	}
+}
+
+int run_builtin_command (char **args){
 	int i;
 	int size = num_builtins();
+
+	for (i = 0; i < size; i++) {
+    	if( strcmp(args[0],builtins[i]) == 0){
+    		return (*builtin_function[i])(args);
+    	}
+	}
+	return 0;
+}
+
+int execute(char **args){
+
 	if(args == NULL){
 		return 1;
 	}
 	if(args[0] == NULL){
 		return 1;
 	}
-	for (i = 0; i < size; i++) {
-    	if( strcmp(args[0],builtins[i]) == 0){
-    		return (*builtin_function[i])(args);
-    	}
+	int stat = run_builtin_command(args);
+	if(!stat){
+		return run_command(args);
 	}
-
-	return run_command(args);
+	else if(stat == 2){
+		return 0;
+	}
+	return 1;
 }
+
 void ush_shell(FILE *input){
 	char *line;
 	char **args;
+	char ***args_arr;
 	int argc = 0;
 	int status;
 
@@ -239,12 +338,20 @@ void ush_shell(FILE *input){
 		if( strcmp(line,"\0") != 0){
 			add_history(line);
 			ush_history_add(input,line);
-		}		
-		args = split_line(line,&argc);
-		status = execute(args);
+		}
+		if(strstr(line,"|") == NULL){
+			args = split_line(line,&argc);
+			status = execute(args);
+			free(line);
+			free(args);
+		}
+		else{
+			args_arr = split_pipe(line,&argc);
+			run_pipe_command(args_arr);
+			free(args_arr);
+			status = 1;
+		}
 
-		free(line);
-		free(args);
 		argc = 0;
 	}while(status);
 
