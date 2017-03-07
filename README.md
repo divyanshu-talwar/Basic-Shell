@@ -17,5 +17,8 @@
 * The shell exits if an `EOF character` or `exit` is typed on stdin.
 * Typing `enter` on `stdin` takes the prompt to the next line.
 
+### Functionalities to add in the `near` future :
+* Background and Foreground jobs.
+
 ## Installation and Execution
 * Run `make` command on the console and the Makefile would run the shell.
