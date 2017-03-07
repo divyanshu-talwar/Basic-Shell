@@ -1,7 +1,7 @@
-# Operating Systems Assignment - 2
+# Basic C Shell
 ## About
 * This is a basic shell implemented in C.
-* Contributor - Divyanshu Talwar (2015028)
+* Contributor - Divyanshu Talwar
 
 #### Basic Functionalities
 * The shell does not exit on `Ctrl + C`. 
